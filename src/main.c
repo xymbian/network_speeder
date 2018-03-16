@@ -1,4 +1,7 @@
 #include <string.h>
+#include <linux/if_packet.h>
+#include <net/if.h>
+#include <sys/ioctl.h>
 
 #include "network_util.h"
 
@@ -76,17 +79,68 @@ void task2()
     struct ethhdr *eth;
     struct iphdr *iph;
     struct tcphdr *tcph;
+    struct sockaddr_ll sll;
+    struct ifreq ifstruct;
+
+    memset(&sll, 0, sizeof(struct sockaddr_ll));
+    //strcpy(ifstruct.ifr_name, "p3p1");
+    strcpy(ifstruct.ifr_name, "lo");
 
     if (0 > (sock = socket(PF_PACKET, SOCK_RAW, htons(ETH_P_IP))))
     {
-        perror("socket");
+        perror("socket\n");
+        exit(1);
+    }
+
+    if (ioctl(sock, SIOCGIFINDEX, &ifstruct) == -1)
+    {
+        printf("ioctl SIOCGIFINDEX Error!!!\n");
+        close(sock);
+        exit(1);
+    }
+
+    sll.sll_family   = PF_PACKET;
+    sll.sll_ifindex  = ifstruct.ifr_ifindex;
+    sll.sll_protocol = htons(ETH_P_ALL);
+    sll.sll_hatype   = ARPHRD_ETHER;
+    sll.sll_pkttype  = PACKET_OTHERHOST;
+    sll.sll_halen    = ETH_ALEN;
+    sll.sll_addr[6]  = 0;
+    sll.sll_addr[7]  = 0;
+
+    if (ioctl(sock, SIOCGIFHWADDR, &ifstruct) == -1)
+    {
+        printf("ioctl SIOCGIFHWADDR Error!!!\n");
+        close(sock);
+        exit(1);
+    }
+
+    if (ioctl(sock, SIOCGIFFLAGS, &ifstruct) < 0)
+    {
+        printf("ioctl SIOCGIFFLAGS Error!!!\n");
+        close(sock);
+        exit(1);
+    }
+#if 1
+    ifstruct.ifr_flags |= IFF_PROMISC;   //set promisc
+    if (ioctl(sock, SIOCSIFFLAGS, &ifstruct) == -1)
+    {
+        printf("Set promisc error\n");
+        close(sock);
+        exit(1);
+    }
+#endif
+    if (bind(sock, (struct sockaddr *)&sll, sizeof(struct sockaddr_ll)) == -1)
+    {
+        printf("Bind Error!\n");
+        close(sock);
         exit(1);
     }
 
     while (1)
     {
         printf("=====================================\n");
-        n = recvfrom(sock,buffer,2048,0,NULL,NULL);
+        n = read(sock,buffer,2048);
         printf("%d bytes read\n",n);
 
         eth = (struct ethhdr*)buffer;
@@ -111,6 +165,7 @@ void task2()
             printf("Dest address:%d\n", ntohs(tcph->dest));
             printf("Seq:%x\n", ntohs(tcph->seq));
             printf("Ack seq:%x\n", ntohs(tcph->ack_seq));
+            printf("Check:%x\n", ntohs(tcph->check));
         }
     }
 }
@@ -137,7 +192,9 @@ int main(int argc, char* argv[])
             printf("0x%02x, ", newData[index++]);
         }
         printf("]\n");
-    } 
+    }
+
+    task2();
 
     return 0;
 }
